@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using ShowroomCar.Infrastructure.Persistence;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 
 namespace ShowroomCar.Infrastructure.Auditing
 {

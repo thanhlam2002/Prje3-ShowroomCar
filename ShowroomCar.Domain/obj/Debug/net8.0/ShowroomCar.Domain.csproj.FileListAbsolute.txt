@@ -9,3 +9,4 @@ C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net8.0\Showroom
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net8.0\refint\ShowroomCar.Domain.dll
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net8.0\ShowroomCar.Domain.pdb
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net8.0\ref\ShowroomCar.Domain.dll
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net8.0\ShowroomCar.Domain.sourcelink.json
