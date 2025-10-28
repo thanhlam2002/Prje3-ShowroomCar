@@ -1,0 +1,11 @@
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\bin\Debug\net9.0\ShowroomCar.Domain.deps.json
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\bin\Debug\net9.0\ShowroomCar.Domain.dll
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\bin\Debug\net9.0\ShowroomCar.Domain.pdb
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.AssemblyInfoInputs.cache
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.AssemblyInfo.cs
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.csproj.CoreCompileInputs.cache
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.dll
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\refint\ShowroomCar.Domain.dll
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ShowroomCar.Domain.pdb
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Domain\obj\Debug\net9.0\ref\ShowroomCar.Domain.dll

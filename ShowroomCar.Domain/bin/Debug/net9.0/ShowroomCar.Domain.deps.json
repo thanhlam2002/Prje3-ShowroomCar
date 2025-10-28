@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "ShowroomCar.Domain/1.0.0": {
+        "runtime": {
+          "ShowroomCar.Domain.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "ShowroomCar.Domain/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
