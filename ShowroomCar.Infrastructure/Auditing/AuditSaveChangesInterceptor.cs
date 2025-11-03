@@ -1,3 +1,4 @@
+// AuditSaveChangesInterceptor.cs
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -7,6 +8,11 @@ using ShowroomCar.Infrastructure.Persistence;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ShowroomCar.Infrastructure.Auditing
 {
@@ -32,24 +38,26 @@ namespace ShowroomCar.Infrastructure.Auditing
         private long? GetCurrentUserId()
         {
             var user = _http.HttpContext?.User;
-            if (user == null || !user.Identity?.IsAuthenticated == true) return null;
+            if (user == null || user.Identity?.IsAuthenticated != true) return null;
 
-            // JWT mình đã set 'sub' = userId
+            // JWT: 'sub' = userId
             var sub = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
                       ?? user.FindFirst("sub")?.Value;
-            if (long.TryParse(sub, out var uid)) return uid;
-            return null;
+
+            return long.TryParse(sub, out var uid) ? uid : (long?)null;
         }
 
         private static object? GetPk(EntityEntry e)
         {
             var key = e.Metadata.FindPrimaryKey();
             if (key == null) return null;
+
             if (key.Properties.Count == 1)
             {
                 var prop = key.Properties[0].Name;
                 return e.Property(prop).CurrentValue ?? e.Property(prop).OriginalValue;
             }
+
             // PK phức hợp → trả về dictionary
             var dict = new Dictionary<string, object?>();
             foreach (var p in key.Properties)
@@ -58,6 +66,20 @@ namespace ShowroomCar.Infrastructure.Auditing
                 dict[p.Name] = v.CurrentValue ?? v.OriginalValue;
             }
             return dict;
+        }
+
+        private static long? TryGetLongId(object? pk)
+        {
+            return pk switch
+            {
+                null => null,
+                long l => l,
+                int i => i,
+                short s => s,
+                byte b => b,
+                string s when long.TryParse(s, out var v) => v,
+                _ => null // composite key / GUID / dạng khác → không ép được
+            };
         }
 
         private static string? BuildChanges(EntityEntry e)
@@ -117,17 +139,18 @@ namespace ShowroomCar.Infrastructure.Auditing
                 if (action == null) continue;
 
                 var entityName = e.Metadata.GetTableName() ?? e.Entity.GetType().Name;
-                var entityId = GetPk(e);
+                var entityPkObj = GetPk(e);
                 var changes = BuildChanges(e);
 
                 _buffer.Add(new AuditLog
                 {
-                    Entity = entityName,
-                    EntityId = entityId?.ToString() ?? "",
-                    Action = action,
-                    Changes = changes,
-                    ActorUserId = actor,
-                    CreatedAt = DateTime.Now
+                    Entity       = entityName,
+                    // ⚠️ EntityId là long (non-nullable) → dùng GetValueOrDefault() để trả về 0 khi null
+                    EntityId     = TryGetLongId(entityPkObj).GetValueOrDefault(),
+                    Action       = action,
+                    Changes      = changes,
+                    ActorUserId  = actor,
+                    CreatedAt    = DateTime.UtcNow
                 });
             }
 

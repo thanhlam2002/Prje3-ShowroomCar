@@ -2,12 +2,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 using ShowroomCar.Application.Dtos;
+using Microsoft.AspNetCore.Authorization;
 using Mapster;
 
 namespace ShowroomCar.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "RequireEmployee")]
     public class VehiclesController : ControllerBase
     {
         private readonly ShowroomDbContext _context;

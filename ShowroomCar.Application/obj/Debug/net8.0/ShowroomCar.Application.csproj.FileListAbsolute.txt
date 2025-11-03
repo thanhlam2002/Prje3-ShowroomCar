@@ -15,3 +15,4 @@ C:\Users\Public\Project\ShowroomCar\ShowroomCar.Application\obj\Debug\net8.0\Sho
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Application\obj\Debug\net8.0\ref\ShowroomCar.Application.dll
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Application\bin\Debug\net8.0\ShowroomCar.Infrastructure.dll
 C:\Users\Public\Project\ShowroomCar\ShowroomCar.Application\bin\Debug\net8.0\ShowroomCar.Infrastructure.pdb
+C:\Users\Public\Project\ShowroomCar\ShowroomCar.Application\obj\Debug\net8.0\ShowroomCar.Application.sourcelink.json

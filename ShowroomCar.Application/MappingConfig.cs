@@ -1,49 +1,48 @@
+using System.Collections.Generic;
 using Mapster;
-using Microsoft.Extensions.DependencyInjection;  // <— Thêm dòng này
-using ShowroomCar.Infrastructure.Persistence.Entities; // Giữ nguyên
+using ShowroomCar.Infrastructure.Persistence.Entities;
 using ShowroomCar.Application.Dtos;
 
 namespace ShowroomCar.Application
 {
     public static class MappingConfig
     {
-        public static void RegisterMappings(this IServiceCollection services)
+        public static void Register()
         {
-            TypeAdapterConfig<Vehicle, VehicleDto>.NewConfig()
-                .Map(dest => dest.ModelName, src => src.Model.Name)
-                .IgnoreNullValues(true);
+            var cfg = TypeAdapterConfig.GlobalSettings;
+            cfg.Default.IgnoreNullValues(true);
 
-            TypeAdapterConfig<Customer, CustomerDto>.NewConfig()
-                .IgnoreNullValues(true);
+            TypeAdapterConfig<Vehicle, VehicleDto>.NewConfig()
+                .Map(d => d.ModelName, s => s.Model != null ? s.Model.Name : null);
+
+            TypeAdapterConfig<Customer, CustomerDto>.NewConfig();
 
             TypeAdapterConfig<SalesOrder, SalesOrderDto>.NewConfig()
-                .Map(dest => dest.CustomerName, src => src.Customer.FullName)
-                .Map(dest => dest.Items, src => src.SalesOrderItems.Adapt<List<SalesOrderItemDto>>())
-                .IgnoreNullValues(true);
+                .Map(d => d.CustomerName, s => s.Customer != null ? s.Customer.FullName : null)
+                .Map(d => d.Items, s => s.SalesOrderItems != null
+                                         ? s.SalesOrderItems.Adapt<List<SalesOrderItemDto>>()
+                                         : new List<SalesOrderItemDto>());
 
             TypeAdapterConfig<SalesOrderItem, SalesOrderItemDto>.NewConfig()
-                .Map(dest => dest.VehicleVin, src => src.Vehicle.Vin)
-                .IgnoreNullValues(true);
+                .Map(d => d.VehicleVin, s => s.Vehicle != null ? s.Vehicle.Vin : null);
 
             TypeAdapterConfig<Invoice, InvoiceDto>.NewConfig()
-                .Map(dest => dest.CustomerName, src => src.Customer.FullName)
-                .Map(dest => dest.Items, src => src.InvoiceItems.Adapt<List<InvoiceItemDto>>())
-                .IgnoreNullValues(true);
+                .Map(d => d.CustomerName, s => s.Customer != null ? s.Customer.FullName : null)
+                .Map(d => d.Items, s => s.InvoiceItems != null
+                                         ? s.InvoiceItems.Adapt<List<InvoiceItemDto>>()
+                                         : new List<InvoiceItemDto>());
 
             TypeAdapterConfig<InvoiceItem, InvoiceItemDto>.NewConfig()
-                .Map(dest => dest.VehicleVin, src => src.Vehicle.Vin)
-                .IgnoreNullValues(true);
+                .Map(d => d.VehicleVin, s => s.Vehicle != null ? s.Vehicle.Vin : null);
 
             TypeAdapterConfig<Payment, PaymentDto>.NewConfig()
-                .Map(dest => dest.CustomerName, src => src.Customer.FullName)
-                .Map(dest => dest.Allocations, src => src.PaymentAllocations.Adapt<List<PaymentAllocationDto>>())
-                .IgnoreNullValues(true);
+                .Map(d => d.CustomerName, s => s.Customer != null ? s.Customer.FullName : null)
+                .Map(d => d.Allocations, s => s.PaymentAllocations != null
+                                              ? s.PaymentAllocations.Adapt<List<PaymentAllocationDto>>()
+                                              : new List<PaymentAllocationDto>());
 
             TypeAdapterConfig<PaymentAllocation, PaymentAllocationDto>.NewConfig()
-                .Map(dest => dest.InvoiceNo, src => src.Invoice.InvoiceNo)
-                .IgnoreNullValues(true);
-
-            services.AddMapster();
+                .Map(d => d.InvoiceNo, s => s.Invoice != null ? s.Invoice.InvoiceNo : null);
         }
     }
 }

@@ -324,7 +324,10 @@
         },
         "runtime": {
           "bin/placeholder/ShowroomCar.Infrastructure.dll": {}
-        }
+        },
+        "frameworkReferences": [
+          "Microsoft.AspNetCore.App"
+        ]
       }
     }
   },

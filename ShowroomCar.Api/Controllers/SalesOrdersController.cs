@@ -3,11 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 using ShowroomCar.Application.Dtos;
 using Mapster;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ShowroomCar.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "RequireEmployee")]
     public class SalesOrdersController : ControllerBase
     {
         private readonly ShowroomDbContext _context;
