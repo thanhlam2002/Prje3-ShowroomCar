@@ -1,5 +1,0 @@
-C:\Users\Public\Project\ShowroomCar\ShowroomCar.Infrastructure\obj\Debug\net9.0\ShowroomCar.Infrastructure.csproj.AssemblyReference.cache
-C:\Users\Public\Project\ShowroomCar\ShowroomCar.Infrastructure\obj\Debug\net9.0\ShowroomCar.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\Public\Project\ShowroomCar\ShowroomCar.Infrastructure\obj\Debug\net9.0\ShowroomCar.Infrastructure.AssemblyInfoInputs.cache
-C:\Users\Public\Project\ShowroomCar\ShowroomCar.Infrastructure\obj\Debug\net9.0\ShowroomCar.Infrastructure.AssemblyInfo.cs
-C:\Users\Public\Project\ShowroomCar\ShowroomCar.Infrastructure\obj\Debug\net9.0\ShowroomCar.Infrastructure.csproj.CoreCompileInputs.cache
