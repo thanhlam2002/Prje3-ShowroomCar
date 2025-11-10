@@ -43,9 +43,14 @@ namespace ShowroomCar.Api.Controllers
                 return Unauthorized("User not found or inactive.");
 
             // ✅ Sửa DbSet số ít
-            var roles = await _db.Users
-                .Where(u => u.UserId == user.UserId)
-                .SelectMany(u => u.Roles.Select(r => r.Code))
+            var roles = await _db.Roles
+                .FromSqlRaw($@"
+                    SELECT r.*
+                    FROM roles r
+                    INNER JOIN user_roles ur ON r.role_id = ur.role_id
+                    WHERE ur.user_id = {user.UserId}
+                ")
+                .Select(r => r.Code)
                 .ToListAsync();
 
             var ok = BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash);

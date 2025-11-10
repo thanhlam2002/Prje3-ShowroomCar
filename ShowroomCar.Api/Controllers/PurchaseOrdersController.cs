@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ShowroomCar.Application.Dtos;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Authorization;
+using ShowroomCar.Api.Services;
 
 namespace ShowroomCar.Api.Controllers
 {
@@ -58,10 +59,12 @@ namespace ShowroomCar.Api.Controllers
             var sup = await _db.Suppliers.FindAsync(req.SupplierId);
             if (sup == null) return NotFound("Supplier not found.");
 
-            // validate models
             var modelIds = req.Items.Select(x => x.ModelId).Distinct().ToList();
-            var existing = await _db.VehicleModels.Where(m => modelIds.Contains(m.ModelId))
-                                                  .Select(m => m.ModelId).ToListAsync();
+            var existing = await _db.VehicleModels
+                .Where(m => modelIds.Contains(m.ModelId))
+                .Select(m => m.ModelId)
+                .ToListAsync();
+
             if (existing.Count != modelIds.Count)
                 return BadRequest("Some model IDs do not exist.");
 
@@ -69,7 +72,7 @@ namespace ShowroomCar.Api.Controllers
             {
                 PoNo = NewNo("PO"),
                 SupplierId = req.SupplierId,
-                Status = "APPROVED", // đơn giản: tạo là Approve luôn (đủ cho demo)
+                Status = "PENDING",
                 OrderDate = req.OrderDate,
                 TotalAmount = 0,
                 CreatedBy = null,
@@ -133,5 +136,151 @@ namespace ShowroomCar.Api.Controllers
                 }).ToList()
             });
         }
+
+        // ✅ NEW: Approve PO → auto create GR + ServiceOrders
+        // [HttpPost("{id:long}/approve")]
+        // public async Task<IActionResult> Approve(long id)
+        // {
+        //     var po = await _db.PurchaseOrders
+        //         .Include(p => p.PurchaseOrderItems)
+        //         .FirstOrDefaultAsync(p => p.PoId == id);
+
+        //     if (po == null) return NotFound();
+        //     if (po.Status == "APPROVED") return Conflict("Already approved.");
+
+        //     await using var tx = await _db.Database.BeginTransactionAsync();
+        //     try
+        //     {
+        //         po.Status = "APPROVED";
+        //         _db.PurchaseOrders.Update(po);
+
+        //         // 1️⃣ Tạo phiếu nhập (GR)
+        //         var gr = new GoodsReceipt
+        //         {
+        //             GrNo = $"GR-{DateTime.UtcNow:yyyyMMddHHmmssfff}",
+        //             PoId = po.PoId,
+        //             WarehouseId = 1, // TODO: replace with config
+        //             ReceiptDate = DateOnly.FromDateTime(DateTime.UtcNow),
+        //             CreatedAt = DateTime.UtcNow
+        //         };
+        //         _db.GoodsReceipts.Add(gr);
+        //         await _db.SaveChangesAsync();
+
+        //         var createdVehicles = new List<Vehicle>();
+        //         var now = DateTime.UtcNow;
+
+        //         // 2️⃣ Sinh xe
+        //         foreach (var item in po.PurchaseOrderItems)
+        //         {
+        //             for (int i = 0; i < item.Qty; i++)
+        //             {
+        //                 var suffix = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
+        //                 var vin = $"VIN-{item.ModelId:D2}-{DateTime.UtcNow:HHmmss}-{suffix}";
+        //                 var eng = $"ENG-{item.ModelId:D2}-{DateTime.UtcNow:HHmmss}-{suffix}";
+
+        //                 var veh = new Vehicle
+        //                 {
+        //                     ModelId = item.ModelId,
+        //                     Vin = vin,
+        //                     EngineNo = eng,
+        //                     Color = "White",
+        //                     Year = DateTime.UtcNow.Year,
+        //                     Status = "INSPECTION_PENDING",
+        //                     AcquiredAt = now,
+        //                     UpdatedAt = now
+        //                 };
+        //                 _db.Vehicles.Add(veh);
+        //                 createdVehicles.Add(veh);
+        //             }
+        //         }
+
+        //         await _db.SaveChangesAsync();
+
+        //         // 3️⃣ Ghi chi tiết phiếu nhập (GR Items)
+        //         var grItems = createdVehicles.Select(v => new GoodsReceiptItem
+        //         {
+        //             GrId = gr.GrId,
+        //             VehicleId = v.VehicleId,
+        //             LandedCost = po.PurchaseOrderItems
+        //                 .FirstOrDefault(x => x.ModelId == v.ModelId)?.UnitPrice ?? 0
+        //         });
+        //         await _db.GoodsReceiptItems.AddRangeAsync(grItems);
+
+        //         // 4️⃣ Tạo ServiceOrder theo model_id
+        //         var modelGroups = createdVehicles.GroupBy(v => v.ModelId);
+        //         foreach (var grp in modelGroups)
+        //         {
+        //             var svc = new ServiceOrder
+        //             {
+        //                 SvcNo = $"SVC-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{grp.Key}",
+        //                 PoId = po.PoId,
+        //                 GrId = gr.GrId,
+        //                 ModelId = grp.Key,
+        //                 QuantityExpected = grp.Count(),
+        //                 ScheduledDate = DateOnly.FromDateTime(DateTime.UtcNow),
+        //                 Status = "PLANNED",
+        //                 Notes = $"Kiểm định lô xe model_id={grp.Key} ({grp.Count()} xe)",
+        //                 CreatedAt = now
+        //             };
+        //             _db.ServiceOrders.Add(svc);
+        //         }
+
+        //         await _db.SaveChangesAsync();
+        //         await tx.CommitAsync();
+
+        //         return Ok(new { message = "PO approved, GR + Service Orders created", gr.GrId });
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         await tx.RollbackAsync();
+        //         return StatusCode(500, $"Transaction failed: {ex.Message}");
+        //     }
+        // }
+
+        // ✅ Gửi PO cho nhà cung cấp (send mail + đổi trạng thái)
+        [HttpPost("{id:long}/send")]
+        public async Task<IActionResult> Send(long id, [FromServices] MailService mailer)
+        {
+            var po = await _db.PurchaseOrders
+                .Include(p => p.Supplier)
+                .Include(p => p.PurchaseOrderItems)
+                .FirstOrDefaultAsync(p => p.PoId == id);
+
+            if (po == null) return NotFound();
+            if (po.Status == "RECEIVING" || po.Status == "CLOSED")
+                return Conflict($"PO #{id} already sent or closed.");
+
+            // Cập nhật trạng thái
+            po.Status = "RECEIVING";
+            _db.PurchaseOrders.Update(po);
+            await _db.SaveChangesAsync();
+
+            // Gửi email cho nhà cung cấp
+            var supplier = po.Supplier;
+            if (!string.IsNullOrEmpty(supplier.Email))
+            {
+                var body = $@"
+            <p>Kính gửi <b>{supplier.Name}</b>,</p>
+            <p>Đơn đặt hàng <b>{po.PoNo}</b> đã được gửi từ hệ thống ShowroomCar.</p>
+            <p>Chi tiết đơn hàng:</p>
+            <ul>
+              {string.Join("", po.PurchaseOrderItems.Select(i => $"<li>Model #{i.ModelId} - Số lượng: {i.Qty} - Đơn giá: {i.UnitPrice:C}</li>"))}
+            </ul>
+            <p>Vui lòng xác nhận và tiến hành giao hàng theo lịch đã thỏa thuận.</p>
+            <hr/>
+            <p><i>Đây là email tự động từ hệ thống ShowroomCar.</i></p>";
+
+                await mailer.SendPurchaseOrderAsync(
+                    supplier.Email,
+                    $"[ShowroomCar] Đơn đặt hàng {po.PoNo}",
+                    body
+                );
+            }
+
+            return Ok(new { message = "PO sent successfully", po.PoNo, po.Status });
+        }
+
+
+
     }
 }

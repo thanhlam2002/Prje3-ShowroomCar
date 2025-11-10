@@ -38,7 +38,8 @@ namespace ShowroomCar.Api.Controllers
 
             var vins = await _db.Vehicles
                 .Where(v => gr.GoodsReceiptItems.Select(i => i.VehicleId).Contains(v.VehicleId))
-                .Select(v => new { v.VehicleId, v.Vin, v.EngineNo }).ToListAsync();
+                .Select(v => new { v.VehicleId, v.Vin, v.EngineNo })
+                .ToListAsync();
 
             var dto = new GoodsReceiptDto
             {
@@ -71,75 +72,144 @@ namespace ShowroomCar.Api.Controllers
 
             if (req.PoId.HasValue)
             {
-                var po = await _db.PurchaseOrders.AsNoTracking().FirstOrDefaultAsync(p => p.PoId == req.PoId.Value);
-                if (po == null) return BadRequest("PO not found.");
+                var poCheck = await _db.PurchaseOrders.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.PoId == req.PoId.Value);
+                if (poCheck == null) return BadRequest("PO not found.");
             }
 
             // VIN/Engine uniqueness pre-check
             var vins = req.Vehicles.Select(v => v.Vin).ToList();
             var engs = req.Vehicles.Select(v => v.EngineNo).ToList();
-            var vinExists = await _db.Vehicles.AnyAsync(v => vins.Contains(v.Vin));
-            var engExists = await _db.Vehicles.AnyAsync(v => engs.Contains(v.EngineNo));
-            if (vinExists || engExists) return Conflict("Some VIN/EngineNo already exist.");
+            if (await _db.Vehicles.AnyAsync(v => vins.Contains(v.Vin) || engs.Contains(v.EngineNo)))
+                return Conflict("Some VIN/EngineNo already exist.");
 
-            var gr = new GoodsReceipt
+            // ✅ Validate ModelId tồn tại trong database
+            var modelIds = req.Vehicles.Select(v => v.ModelId).Distinct().ToList();
+            var existingModels = await _db.VehicleModels
+                .Where(m => modelIds.Contains(m.ModelId))
+                .Select(m => m.ModelId)
+                .ToListAsync();
+            
+            var missingModels = modelIds.Except(existingModels).ToList();
+            if (missingModels.Any())
+                return BadRequest($"Model IDs not found: {string.Join(", ", missingModels)}");
+
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
             {
-                GrNo = NewNo("GR"),
-                PoId = req.PoId,
-                ReceiptDate = req.ReceiptDate,
-                WarehouseId = req.WarehouseId,
-                CreatedBy = CurrentUserId(),
-                CreatedAt = DateTime.UtcNow
-            };
-            await _db.GoodsReceipts.AddAsync(gr);
-            await _db.SaveChangesAsync(); // need GrId
+                var now = DateTime.UtcNow;
+                var userId = CurrentUserId();
 
-            var now = DateTime.UtcNow;
-            var movedBy = CurrentUserId();
-
-            foreach (var v in req.Vehicles)
-            {
-                // create vehicle
-                var veh = new Vehicle
+                // 1️⃣ Tạo phiếu nhập
+                var gr = new GoodsReceipt
                 {
-                    ModelId = v.ModelId,
-                    Vin = v.Vin,
-                    EngineNo = v.EngineNo,
-                    Color = v.Color,
-                    Year = v.Year,
-                    Status = "IN_STOCK",
-                    CurrentWarehouseId = req.WarehouseId,
-                    AcquiredAt = now,
-                    UpdatedAt = now
+                    GrNo = NewNo("GR"),
+                    PoId = req.PoId,
+                    ReceiptDate = req.ReceiptDate,
+                    WarehouseId = req.WarehouseId,
+                    CreatedBy = userId,
+                    CreatedAt = now
                 };
-                await _db.Vehicles.AddAsync(veh);
-                await _db.SaveChangesAsync(); // need VehicleId
+                await _db.GoodsReceipts.AddAsync(gr);
+                await _db.SaveChangesAsync(); // cần GrId
 
-                // gri
-                var gri = new GoodsReceiptItem
+                // 2️⃣ Tạo danh sách xe
+                var vehicles = new List<Vehicle>();
+                foreach (var v in req.Vehicles)
                 {
-                    GrId = gr.GrId,
-                    VehicleId = veh.VehicleId,
-                    LandedCost = v.LandedCost
-                };
-                await _db.GoodsReceiptItems.AddAsync(gri);
+                    vehicles.Add(new Vehicle
+                    {
+                        ModelId = v.ModelId,
+                        Vin = v.Vin,
+                        EngineNo = v.EngineNo,
+                        Color = v.Color,
+                        Year = v.Year,
+                        Status = "UNDER_INSPECTION",
+                        CurrentWarehouseId = req.WarehouseId,
+                        AcquiredAt = now,
+                        UpdatedAt = now
+                    });
+                }
+                await _db.Vehicles.AddRangeAsync(vehicles);
+                await _db.SaveChangesAsync(); // để có VehicleId
 
-                // inventory move
-                var mv = new InventoryMove
+                // 3️⃣ Tạo GR Items và ServiceOrders
+                var grItems = new List<GoodsReceiptItem>();
+                var svcOrders = new List<ServiceOrder>();
+                var baseTime = DateTime.UtcNow;
+                var index = 0;
+
+                foreach (var veh in vehicles)
                 {
-                    VehicleId = veh.VehicleId,
-                    FromWarehouseId = null,
-                    ToWarehouseId = req.WarehouseId,
-                    Reason = "RECEIVE",
-                    MovedAt = now,
-                    MovedBy = movedBy
-                };
-                await _db.InventoryMoves.AddAsync(mv);
+                    grItems.Add(new GoodsReceiptItem
+                    {
+                        GrId = gr.GrId,
+                        VehicleId = veh.VehicleId,
+                        LandedCost = req.Vehicles
+                            .First(x => x.Vin == veh.Vin).LandedCost
+                    });
+
+                    // ✅ Tạo SvcNo unique bằng cách thêm index và GUID ngắn
+                    var uniqueSuffix = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
+                    var svcNo = $"SVC-INSP-{baseTime:yyyyMMddHHmmssfff}-{index:D3}-{uniqueSuffix}";
+                    
+                    svcOrders.Add(new ServiceOrder
+                    {
+                        SvcNo = svcNo,
+                        VehicleId = veh.VehicleId,
+                        ModelId = veh.ModelId, // ✅ Thêm ModelId từ Vehicle (đã validate tồn tại)
+                        PoId = gr.PoId,        // ✅ Thêm PoId từ GR (nullable)
+                        GrId = gr.GrId,        // ✅ Thêm GrId từ GR (nullable nhưng luôn có vì vừa tạo)
+                        QuantityExpected = 1,  // ✅ Mỗi ServiceOrder cho 1 xe
+                        ScheduledDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                        Status = "PLANNED",
+                        Notes = "Initial inspection after goods receipt",
+                        CreatedBy = userId,
+                        CreatedAt = now
+                    });
+                    
+                    index++;
+                }
+
+                await _db.GoodsReceiptItems.AddRangeAsync(grItems);
+                await _db.ServiceOrders.AddRangeAsync(svcOrders);
+                await _db.SaveChangesAsync();
+
+                // 4️⃣ Cập nhật trạng thái PO
+                if (gr.PoId.HasValue)
+                {
+                    var po = await _db.PurchaseOrders
+                        .Include(p => p.PurchaseOrderItems)
+                        .FirstOrDefaultAsync(p => p.PoId == gr.PoId.Value);
+
+                    if (po != null)
+                    {
+                        var totalOrdered = po.PurchaseOrderItems.Sum(i => i.Qty);
+                        var totalReceived = await _db.GoodsReceiptItems
+                            .Where(i => i.Gr.PoId == po.PoId)
+                            .CountAsync();
+
+                        po.Status = totalReceived >= totalOrdered ? "CLOSED" : "RECEIVING";
+                        _db.PurchaseOrders.Update(po);
+                        await _db.SaveChangesAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+
+                return CreatedAtAction(nameof(Get), new { id = gr.GrId }, new
+                {
+                    grId = gr.GrId,
+                    gr.GrNo,
+                    Vehicles = vehicles.Count,
+                    ServiceOrders = svcOrders.Count
+                });
             }
-
-            await _db.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(Get), new { id = gr.GrId }, new { grId = gr.GrId, gr.GrNo });
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return StatusCode(500, $"Transaction failed: {ex.Message}");
+            }
         }
     }
 }

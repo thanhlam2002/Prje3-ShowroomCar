@@ -28,6 +28,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditScope>();
 builder.Services.AddScoped<AuditSaveChangesInterceptor>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<MailService>();
 
 // DbContext + Audit interceptor
 builder.Services.AddDbContext<ShowroomDbContext>((sp, options) =>
@@ -71,24 +72,35 @@ builder.Services.RegisterMappings();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    // Hiển thị DateOnly là string 'date'
-    c.MapType<DateOnly>(() => new OpenApiSchema { Type = "string", Format = "date" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "ShowroomCar API", Version = "v1" });
 
-    var jwtScheme = new OpenApiSecurityScheme
+    var securityScheme = new OpenApiSecurityScheme
     {
         Name = "Authorization",
+        Description = "Nhập token dạng: Bearer {token}",
+        In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Nhập: Bearer {token}"
+        Reference = new OpenApiReference
+        {
+            Type = ReferenceType.SecurityScheme,
+            Id = "Bearer"
+        }
     };
-    c.AddSecurityDefinition("Bearer", jwtScheme);
+
+    c.AddSecurityDefinition("Bearer", securityScheme);
+
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { jwtScheme, Array.Empty<string>() }
+        { securityScheme, new string[] {} }
     });
+
+    // map DateOnly etc nếu cần
+    c.MapType<DateOnly>(() => new OpenApiSchema { Type = "string", Format = "date" });
 });
+
+
 
 var app = builder.Build();
 

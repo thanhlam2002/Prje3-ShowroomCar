@@ -1,0 +1,395 @@
+{
+  "info": {
+    "name": "ShowroomCar API",
+    "description": "API collection cho hệ thống quản lý ShowroomCar",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://localhost:5001",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usernameOrEmail\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('token', jsonData.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Purchase Orders",
+      "item": [
+        {
+          "name": "Tạo Purchase Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": 1,\n  \"orderDate\": \"2024-01-15\",\n  \"items\": [\n    {\n      \"modelId\": 1,\n      \"qty\": 3,\n      \"unitPrice\": 500000000\n    },\n    {\n      \"modelId\": 2,\n      \"qty\": 2,\n      \"unitPrice\": 600000000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/purchaseorders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchaseorders"]
+            }
+          }
+        },
+        {
+          "name": "Gửi PO cho Supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/purchaseorders/1/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchaseorders", "1", "send"]
+            }
+          }
+        },
+        {
+          "name": "Danh sách PO",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/purchaseorders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchaseorders"]
+            }
+          }
+        },
+        {
+          "name": "Chi tiết PO",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/purchaseorders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "purchaseorders", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Goods Receipts",
+      "item": [
+        {
+          "name": "Tạo Goods Receipt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"poId\": 1,\n  \"warehouseId\": 1,\n  \"receiptDate\": \"2024-01-20\",\n  \"vehicles\": [\n    {\n      \"modelId\": 1,\n      \"vin\": \"VIN-001-ABC123\",\n      \"engineNo\": \"ENG-001-XYZ789\",\n      \"color\": \"Trắng\",\n      \"year\": 2024,\n      \"landedCost\": 520000000\n    },\n    {\n      \"modelId\": 1,\n      \"vin\": \"VIN-002-DEF456\",\n      \"engineNo\": \"ENG-002-UVW012\",\n      \"color\": \"Đen\",\n      \"year\": 2024,\n      \"landedCost\": 520000000\n    },\n    {\n      \"modelId\": 1,\n      \"vin\": \"VIN-003-GHI789\",\n      \"engineNo\": \"ENG-003-RST345\",\n      \"color\": \"Bạc\",\n      \"year\": 2024,\n      \"landedCost\": 520000000\n    },\n    {\n      \"modelId\": 2,\n      \"vin\": \"VIN-004-JKL012\",\n      \"engineNo\": \"ENG-004-MNO678\",\n      \"color\": \"Đỏ\",\n      \"year\": 2024,\n      \"landedCost\": 620000000\n    },\n    {\n      \"modelId\": 2,\n      \"vin\": \"VIN-005-PQR345\",\n      \"engineNo\": \"ENG-005-STU901\",\n      \"color\": \"Xanh\",\n      \"year\": 2024,\n      \"landedCost\": 620000000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/goodsreceipts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "goodsreceipts"]
+            }
+          }
+        },
+        {
+          "name": "Chi tiết Goods Receipt",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/goodsreceipts/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "goodsreceipts", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Service Orders",
+      "item": [
+        {
+          "name": "Danh sách Service Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/serviceorders?status=PLANNED",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "serviceorders"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PLANNED"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Chi tiết Service Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/serviceorders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "serviceorders", "1"]
+            }
+          }
+        },
+        {
+          "name": "Bắt đầu kiểm định",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/serviceorders/1/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "serviceorders", "1", "start"]
+            }
+          }
+        },
+        {
+          "name": "Hoàn tất kiểm định",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passedVehicles\": [1, 2, 3, 4],\n  \"failedVehicles\": [5]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/serviceorders/1/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "serviceorders", "1", "complete"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Sales Orders",
+      "item": [
+        {
+          "name": "Tạo Sales Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": 1,\n  \"items\": [\n    {\n      \"vehicleId\": 1,\n      \"sellPrice\": 550000000,\n      \"discount\": 10000000,\n      \"tax\": 55000000\n    },\n    {\n      \"vehicleId\": 2,\n      \"sellPrice\": 550000000,\n      \"discount\": 0,\n      \"tax\": 55000000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/salesorders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesorders"]
+            }
+          }
+        },
+        {
+          "name": "Danh sách Sales Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/salesorders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesorders"]
+            }
+          }
+        },
+        {
+          "name": "Xác nhận Sales Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/salesorders/1/confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesorders", "1", "confirm"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Payments",
+      "item": [
+        {
+          "name": "Tạo Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": 1,\n  \"paymentDate\": \"2024-01-25\",\n  \"method\": \"CASH\",\n  \"amount\": 1000000000,\n  \"notes\": \"Thanh toán một phần\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments"]
+            }
+          }
+        },
+        {
+          "name": "Phân bổ Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allocations\": [\n    {\n      \"invoiceId\": 1,\n      \"amount\": 1000000000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/1/allocate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "1", "allocate"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+

@@ -76,9 +76,12 @@ public partial class ShowroomDbContext : DbContext
 
     public virtual DbSet<Warehouse> Warehouses { get; set; }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseMySql("server=localhost;database=showroom;user=showroom_user;password=123456", Microsoft.EntityFrameworkCore.ServerVersion.Parse("10.4.32-mariadb"));
+    public DbSet<GoodsReturn> GoodsReturns { get; set; }
+
+    public DbSet<GoodsReturnItem> GoodsReturnItems { get; set; }
+
+    // Connection string được cấu hình qua DI trong Program.cs
+    // Không cần OnConfiguring nữa vì đã có DbContextOptions được inject
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -302,55 +305,57 @@ public partial class ShowroomDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_doclink_doc");
         });
-
         modelBuilder.Entity<GoodsReceipt>(entity =>
         {
+            entity.ToTable("goods_receipts");
             entity.HasKey(e => e.GrId).HasName("PRIMARY");
 
-            entity
-                .ToTable("goods_receipts")
-                .UseCollation("utf8mb4_general_ci");
-
             entity.HasIndex(e => e.PoId, "fk_gr_po");
-
-            entity.HasIndex(e => e.CreatedBy, "fk_gr_user");
-
             entity.HasIndex(e => e.WarehouseId, "fk_gr_wh");
-
-            entity.HasIndex(e => e.GrNo, "gr_no").IsUnique();
+            entity.HasIndex(e => e.CreatedBy, "fk_gr_user");
 
             entity.Property(e => e.GrId)
                 .HasColumnType("bigint(20)")
                 .HasColumnName("gr_id");
-            entity.Property(e => e.CreatedAt)
-                .HasColumnType("datetime")
-                .HasColumnName("created_at");
-            entity.Property(e => e.CreatedBy)
-                .HasColumnType("bigint(20)")
-                .HasColumnName("created_by");
+
             entity.Property(e => e.GrNo)
                 .HasMaxLength(50)
                 .HasColumnName("gr_no");
-            entity.Property(e => e.PoId)
-                .HasColumnType("bigint(20)")
-                .HasColumnName("po_id");
-            entity.Property(e => e.ReceiptDate).HasColumnName("receipt_date");
+
+            entity.Property(e => e.ReceiptDate)
+                .HasColumnName("receipt_date");
+
             entity.Property(e => e.WarehouseId)
                 .HasColumnType("int(11)")
                 .HasColumnName("warehouse_id");
 
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.GoodsReceipts)
-                .HasForeignKey(d => d.CreatedBy)
-                .HasConstraintName("fk_gr_user");
+            entity.Property(e => e.CreatedBy)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("created_by");
 
-            entity.HasOne(d => d.Po).WithMany(p => p.GoodsReceipts)
-                .HasForeignKey(d => d.PoId)
-                .HasConstraintName("fk_gr_po");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.PoId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("po_id");
 
             entity.HasOne(d => d.Warehouse).WithMany(p => p.GoodsReceipts)
                 .HasForeignKey(d => d.WarehouseId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_gr_wh");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.GoodsReceipts)
+                .HasForeignKey(d => d.CreatedBy)
+                .HasConstraintName("fk_gr_user");
+
+            entity.HasOne(d => d.Po)
+                .WithMany(p => p.GoodsReceipts)
+                .HasForeignKey(d => d.PoId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_gr_po");
         });
 
         modelBuilder.Entity<GoodsReceiptItem>(entity =>
@@ -982,6 +987,29 @@ public partial class ShowroomDbContext : DbContext
             entity.Property(e => e.VehicleId)
                 .HasColumnType("bigint(20)")
                 .HasColumnName("vehicle_id");
+            
+            // Thêm mapping cho các property bổ sung nếu có trong entity
+            entity.Property(e => e.PoId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("po_id")
+                .IsRequired(false);
+            
+            entity.Property(e => e.GrId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("gr_id")
+                .IsRequired(false);
+            
+            entity.Property(e => e.ModelId)
+                .HasColumnType("int(11)")
+                .HasColumnName("model_id");
+            
+            entity.Property(e => e.QuantityExpected)
+                .HasColumnType("int(11)")
+                .HasColumnName("quantity_expected");
+            
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
 
             entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.ServiceOrders)
                 .HasForeignKey(d => d.CreatedBy)
@@ -991,6 +1019,13 @@ public partial class ShowroomDbContext : DbContext
                 .HasForeignKey(d => d.VehicleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_svc_vehicle");
+            
+            // Thêm relationship với Model nếu có
+            entity.HasOne(d => d.Model)
+                .WithMany()
+                .HasForeignKey(d => d.ModelId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_svc_model");
         });
 
         modelBuilder.Entity<Supplier>(entity =>
@@ -1354,6 +1389,68 @@ public partial class ShowroomDbContext : DbContext
             entity.Property(e => e.Name)
                 .HasMaxLength(150)
                 .HasColumnName("name");
+        });
+
+        // ------------------ GOODS RETURN ------------------
+        modelBuilder.Entity<GoodsReturn>(entity =>
+        {
+            entity.HasKey(e => e.GrtId).HasName("PRIMARY");
+
+            entity
+                .ToTable("goods_returns")
+                .UseCollation("utf8mb4_general_ci");
+
+            entity.HasIndex(e => e.PoId, "fk_grt_po");
+            entity.HasIndex(e => e.SupplierId, "fk_grt_supplier");
+
+            entity.Property(e => e.GrtId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("grt_id");
+            entity.Property(e => e.GrtNo)
+                .HasMaxLength(50)
+                .HasColumnName("grt_no");
+            entity.Property(e => e.PoId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("po_id");
+            entity.Property(e => e.SupplierId)
+                .HasColumnType("int(11)")
+                .HasColumnName("supplier_id");
+            entity.Property(e => e.ReturnDate)
+                .HasColumnName("return_date");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+        });
+
+        // ------------------ GOODS RETURN ITEM ------------------
+        modelBuilder.Entity<GoodsReturnItem>(entity =>
+        {
+            entity.HasKey(e => e.GrtItemId).HasName("PRIMARY");
+
+            entity
+                .ToTable("goods_return_items")
+                .UseCollation("utf8mb4_general_ci");
+
+            entity.HasIndex(e => e.GrtId, "fk_grti_grt");
+
+            entity.Property(e => e.GrtItemId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("grt_item_id");
+            entity.Property(e => e.GrtId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("grt_id");
+            entity.Property(e => e.VehicleId)
+                .HasColumnType("bigint(20)")
+                .HasColumnName("vehicle_id");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(255)
+                .HasColumnName("reason");
+
+            entity.HasOne(d => d.GoodsReturn)
+                .WithMany(p => p.GoodsReturnItems)
+                .HasForeignKey(d => d.GrtId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_grti_grt");
         });
 
         OnModelCreatingPartial(modelBuilder);

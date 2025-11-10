@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShowroomCar.Domain.Constants;
 using ShowroomCar.Infrastructure.Persistence.Entities;
-using ShowroomCar.Application.Dtos; // ✅ dùng DTO riêng
+using ShowroomCar.Application.Dtos;
 
 namespace ShowroomCar.Api.Controllers
 {
@@ -31,6 +31,7 @@ namespace ShowroomCar.Api.Controllers
             return long.TryParse(sub, out var id) ? id : (long?)null;
         }
 
+        // ✅ Danh sách ServiceOrder
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ServiceOrderDto>>> List(
             [FromQuery] long? vehicleId, [FromQuery] string? status,
@@ -59,6 +60,7 @@ namespace ShowroomCar.Api.Controllers
             return Ok(data);
         }
 
+        // ✅ Chi tiết
         [HttpGet("{id:long}")]
         public async Task<ActionResult<ServiceOrderDto>> Get(long id)
         {
@@ -81,6 +83,7 @@ namespace ShowroomCar.Api.Controllers
             });
         }
 
+        // ✅ Tạo ServiceOrder (kiểm tra xe)
         [HttpPost]
         public async Task<ActionResult<object>> Create([FromBody] ServiceOrderCreateRequest req)
         {
@@ -104,6 +107,7 @@ namespace ShowroomCar.Api.Controllers
             return CreatedAtAction(nameof(Get), new { id = s.SvcId }, new { s.SvcId, s.SvcNo });
         }
 
+        // ✅ Cập nhật thông tin
         [HttpPut("{id:long}")]
         public async Task<IActionResult> Update(long id, [FromBody] ServiceOrderUpdateRequest req)
         {
@@ -120,6 +124,7 @@ namespace ShowroomCar.Api.Controllers
             return NoContent();
         }
 
+        // ✅ Bắt đầu kiểm tra
         [HttpPost("{id:long}/start")]
         public async Task<IActionResult> Start(long id)
         {
@@ -130,22 +135,180 @@ namespace ShowroomCar.Api.Controllers
 
             s.Status = ServiceOrderStatus.InProgress;
             await _db.SaveChangesAsync();
-            return NoContent();
+            return Ok(new { message = $"Service {s.SvcNo} started." });
         }
 
+        // ✅ Hoàn tất kiểm tra — có kết quả PASSED / FAILED
+        // ✅ Hoàn tất kiểm tra theo lô model_id
         [HttpPost("{id:long}/complete")]
-        public async Task<IActionResult> Complete(long id)
+        public async Task<IActionResult> Complete(long id, [FromBody] ServiceOrderCompleteRequest req)
         {
-            var s = await _db.ServiceOrders.FirstOrDefaultAsync(x => x.SvcId == id);
-            if (s == null) return NotFound();
-            if (s.Status != ServiceOrderStatus.InProgress)
+            var svc = await _db.ServiceOrders
+                .Include(x => x.Vehicle)
+                .FirstOrDefaultAsync(x => x.SvcId == id);
+            if (svc == null) return NotFound();
+            if (svc.Status != ServiceOrderStatus.InProgress)
                 return Conflict($"Only {ServiceOrderStatus.InProgress} can be completed.");
 
-            s.Status = ServiceOrderStatus.Done;
-            await _db.SaveChangesAsync();
-            return NoContent();
+            if ((req.PassedVehicles == null || req.PassedVehicles.Count == 0) &&
+                (req.FailedVehicles == null || req.FailedVehicles.Count == 0))
+                return BadRequest("At least one vehicle must be specified.");
+
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var now = DateTime.UtcNow;
+                var userId = CurrentUserId();
+
+                // ✅ Xe đạt kiểm định → nhập kho
+                var passed = await _db.Vehicles
+                    .Where(v => req.PassedVehicles != null && req.PassedVehicles.Contains(v.VehicleId))
+                    .ToListAsync();
+
+                foreach (var v in passed)
+                {
+                    v.Status = "IN_STOCK";
+                    v.UpdatedAt = now;
+
+                    // Lấy warehouseId từ Vehicle thay vì hardcode
+                    var warehouseId = v.CurrentWarehouseId ?? 1; // Fallback nếu null
+
+                    await _db.InventoryMoves.AddAsync(new InventoryMove
+                    {
+                        VehicleId = v.VehicleId,
+                        ToWarehouseId = warehouseId,
+                        FromWarehouseId = null,
+                        Reason = "INSPECTION_APPROVED",
+                        MovedAt = now,
+                        MovedBy = userId
+                    });
+                }
+
+                // ❌ Xe trượt kiểm định → tạo phiếu trả
+                long? poIdForReturn = null;
+                int? supplierIdForReturn = null;
+
+                if (req.FailedVehicles?.Count > 0)
+                {
+                    // Lấy PoId và SupplierId từ Vehicle thông qua GoodsReceiptItem -> GoodsReceipt -> PurchaseOrder
+                    var failedVehicleIds = req.FailedVehicles.ToList();
+                    var grItems = await _db.GoodsReceiptItems
+                        .Include(gri => gri.Gr)
+                        .ThenInclude(gr => gr.Po)
+                        .Where(gri => failedVehicleIds.Contains(gri.VehicleId))
+                        .ToListAsync();
+
+                    if (grItems.Any())
+                    {
+                        var firstGr = grItems.First().Gr;
+                        poIdForReturn = firstGr.PoId;
+                        if (firstGr.Po != null)
+                        {
+                            supplierIdForReturn = firstGr.Po.SupplierId;
+                        }
+                    }
+
+                    // Nếu không tìm thấy qua GR, thử lấy từ ServiceOrder
+                    if (!poIdForReturn.HasValue && svc.PoId.HasValue && svc.PoId.Value > 0)
+                    {
+                        poIdForReturn = svc.PoId.Value;
+                        var po = await _db.PurchaseOrders.FindAsync(svc.PoId.Value);
+                        if (po != null)
+                        {
+                            supplierIdForReturn = po.SupplierId;
+                        }
+                    }
+
+                    // Fallback: nếu vẫn không có, không tạo GoodsReturn (hoặc log warning)
+                    if (poIdForReturn.HasValue && supplierIdForReturn.HasValue)
+                    {
+                        var gr = new GoodsReturn
+                        {
+                            GrtNo = $"GRT-{DateTime.UtcNow:yyyyMMddHHmmssfff}",
+                            PoId = poIdForReturn.Value,
+                            SupplierId = supplierIdForReturn.Value,
+                            ReturnDate = DateOnly.FromDateTime(now),
+                            CreatedAt = now
+                        };
+                        await _db.GoodsReturns.AddAsync(gr);
+                        await _db.SaveChangesAsync();
+
+                        foreach (var vId in req.FailedVehicles)
+                        {
+                            await _db.GoodsReturnItems.AddAsync(new GoodsReturnItem
+                            {
+                                GrtId = gr.GrtId,
+                                VehicleId = vId,
+                                Reason = "Failed inspection"
+                            });
+
+                            var v = await _db.Vehicles.FindAsync(vId);
+                            if (v != null)
+                            {
+                                v.Status = "RETURNED";
+                                v.UpdatedAt = now;
+                            }
+                        }
+                    }
+                }
+
+                svc.Status = ServiceOrderStatus.Done;
+                svc.Notes += $"\nInspection completed: {passed.Count} approved, {req.FailedVehicles?.Count ?? 0} rejected.";
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // ✅ Kiểm tra nếu tất cả xe thuộc PO đã kiểm định xong → đóng PO
+                // Lấy PoId từ ServiceOrder hoặc từ Vehicle thông qua GR
+                long? poIdToCheck = (svc.PoId.HasValue && svc.PoId.Value > 0) ? svc.PoId.Value : poIdForReturn;
+
+                if (poIdToCheck.HasValue && poIdToCheck.Value > 0)
+                {
+                    var po = await _db.PurchaseOrders
+                        .Include(p => p.PurchaseOrderItems)
+                        .FirstOrDefaultAsync(p => p.PoId == poIdToCheck.Value);
+
+                    if (po != null)
+                    {
+                        var totalOrdered = po.PurchaseOrderItems.Sum(i => i.Qty);
+
+                        // ✅ Đếm số xe thuộc đúng PO đó thông qua GoodsReceipt -> GoodsReceiptItem -> Vehicle
+                        // Chỉ đếm xe đã kiểm định xong (IN_STOCK hoặc RETURNED)
+                        var doneCount = await _db.GoodsReceiptItems
+                            .Include(gri => gri.Gr)
+                            .Include(gri => gri.Vehicle)
+                            .Where(gri => gri.Gr.PoId == po.PoId && 
+                                         (gri.Vehicle.Status == "IN_STOCK" || gri.Vehicle.Status == "RETURNED"))
+                            .CountAsync();
+
+                        if (doneCount >= totalOrdered)
+                        {
+                            po.Status = "CLOSED";
+                            _db.PurchaseOrders.Update(po);
+                            await _db.SaveChangesAsync();
+                        }
+                    }
+                }
+
+
+
+                return Ok(new
+                {
+                    svc.SvcId,
+                    svc.SvcNo,
+                    svc.Status,
+                    Passed = passed.Count,
+                    Failed = req.FailedVehicles?.Count ?? 0
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return StatusCode(500, $"Transaction failed: {ex.Message}");
+            }
         }
 
+
+        // ✅ Huỷ service order
         [HttpPost("{id:long}/cancel")]
         public async Task<IActionResult> Cancel(long id)
         {
@@ -156,9 +319,10 @@ namespace ShowroomCar.Api.Controllers
 
             s.Status = ServiceOrderStatus.Cancelled;
             await _db.SaveChangesAsync();
-            return NoContent();
+            return Ok(new { message = $"Service {s.SvcNo} cancelled." });
         }
 
+        // ✅ Xoá (admin-only)
         [Authorize(Policy = "RequireAdmin")]
         [HttpDelete("{id:long}")]
         public async Task<IActionResult> Delete(long id)

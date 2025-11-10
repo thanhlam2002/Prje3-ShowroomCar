@@ -1,167 +1,139 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authorization;
 using ShowroomCar.Infrastructure.Persistence.Entities;
 
 namespace ShowroomCar.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Policy = "RequireEmployee")]
+    [Authorize(Policy = "RequireAdmin")]
     public class ReportsController : ControllerBase
     {
         private readonly ShowroomDbContext _db;
         public ReportsController(ShowroomDbContext db) => _db = db;
 
-        // ========= 1) STOCK SUMMARY =========
-        // GET /api/reports/stock            -> tổng theo status
-        // GET /api/reports/stock?by=model   -> tổng theo model + status
-        [HttpGet("stock")]
-        public async Task<ActionResult<object>> Stock([FromQuery] string? by)
+        // 1️⃣ Báo cáo tồn kho
+        [HttpGet("inventory")]
+        public async Task<ActionResult<object>> InventorySummary()
         {
-            if (string.Equals(by, "model", StringComparison.OrdinalIgnoreCase))
-            {
-                var rows = await _db.Vehicles
-                    .GroupBy(v => new { v.ModelId, v.Status })
-                    .Select(g => new { g.Key.ModelId, g.Key.Status, Count = g.Count() })
-                    .ToListAsync();
-
-                var modelIds = rows.Select(r => r.ModelId).Distinct().ToList();
-                var names = await _db.VehicleModels
-                    .Where(m => modelIds.Contains(m.ModelId))
-                    .Select(m => new { m.ModelId, m.Name })
-                    .ToDictionaryAsync(x => x.ModelId, x => x.Name);
-
-                var result = rows.Select(r => new
-                {
-                    r.ModelId,
-                    ModelName = names.TryGetValue(r.ModelId, out var n) ? n : "",
-                    r.Status,
-                    r.Count
-                });
-
-                return Ok(result);
-            }
-            else
-            {
-                var result = await _db.Vehicles
-                    .GroupBy(v => v.Status)
-                    .Select(g => new { Status = g.Key, Count = g.Count() })
-                    .ToListAsync();
-
-                return Ok(result);
-            }
+            var data = await _db.Vehicles
+                .GroupBy(v => v.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count() })
+                .ToListAsync();
+            return Ok(data);
         }
 
-        // ========= 2) ACTIVE ALLOTMENTS =========
-        // GET /api/reports/allotments/active
-        [HttpGet("allotments/active")]
-        public async Task<ActionResult<IEnumerable<object>>> ActiveAllotments()
+        // 2️⃣ Báo cáo doanh thu theo tháng
+        [HttpGet("revenue")]
+        public async Task<ActionResult<object>> MonthlyRevenue()
         {
-            const string Reserved = "RESERVED";
+            var raw = await _db.Invoices
+                .Where(i => i.Status == "PAID_FULL" || i.Status == "PAID_PARTIAL")
+                .GroupBy(i => new { i.InvoiceDate.Year, i.InvoiceDate.Month })
+                .Select(g => new
+                {
+                    Year = g.Key.Year,
+                    Month = g.Key.Month,
+                    Total = g.Sum(i => i.GrandTotal)
+                })
+                .ToListAsync(); // <-- EF Core vẫn hiểu đến đây, vẫn dùng ToListAsync được
 
-            var data = await _db.Allotments
-                .Where(a => a.Status == Reserved)
-                .Join(_db.Vehicles, a => a.VehicleId, v => v.VehicleId,
-                    (a, v) => new { a, v })
-                .Join(_db.SalesOrders, av => av.a.SoId, s => s.SoId,
-                    (av, s) => new { av.a, av.v, s })
-                .Join(_db.Customers, avs => avs.s.CustomerId, c => c.CustomerId,
-                    (avs, c) => new
-                    {
-                        avs.a.VehicleId,
-                        avs.v.Vin,
-                        avs.s.SoId,
-                        avs.s.SoNo,
-                        c.CustomerId,
-                        CustomerName = c.FullName,
-                        avs.a.ReservedAt
-                    })
-                .OrderByDescending(x => x.ReservedAt)
-                .ToListAsync();
+            // Phần định dạng chuỗi làm ở bộ nhớ, không còn lỗi string.Format
+            var data = raw
+                .AsEnumerable() // chuyển sang client side
+                .Select(x => new
+                {
+                    Period = $"{x.Year}-{x.Month:D2}",
+                    x.Total
+                })
+                .OrderBy(x => x.Period)
+                .ToList(); // ⬅ đổi thành ToList (không Async nữa)
 
             return Ok(data);
         }
 
-        // ========= 3) SALES (REVENUE) BY DAY =========
-        // GET /api/reports/sales?from=2025-10-01&to=2025-11-05
-        [HttpGet("sales")]
-        public async Task<ActionResult<object>> Sales([FromQuery] DateOnly? from, [FromQuery] DateOnly? to)
+
+
+        // 3️⃣ Báo cáo công nợ (AR Aging)
+        [HttpGet("aging")]
+        public async Task<ActionResult<object>> Aging()
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var start = from ?? today.AddDays(-30);
-            var end   = to   ?? today;
 
-            var q = _db.Invoices
-                .AsNoTracking()
-                .Where(i => i.InvoiceDate >= start && i.InvoiceDate <= end);
-
-            var points = await q
-                .GroupBy(i => i.InvoiceDate)
-                .Select(g => new { Date = g.Key, Revenue = g.Sum(x => x.GrandTotal) })
-                .OrderBy(x => x.Date)
-                .ToListAsync();
-
-            var total = points.Sum(p => p.Revenue);
-
-            return Ok(new
-            {
-                From = start,
-                To   = end,
-                TotalRevenue = total,
-                Series = points // [{ date, revenue }]
-            });
-        }
-
-        // ========= 4) AR AGING (OPEN INVOICES) =========
-        // GET /api/reports/ar-aging
-        [HttpGet("ar-aging")]
-        public async Task<ActionResult<object>> ArAging()
-        {
-            // Open = chưa thanh toán đủ
-            var open = await _db.Invoices
+            var invoices = await _db.Invoices
                 .AsNoTracking()
                 .Where(i => i.Status != "PAID_FULL")
                 .Select(i => new
                 {
                     i.InvoiceId,
                     i.InvoiceNo,
-                    i.InvoiceDate,
+                    i.CustomerId,
                     i.GrandTotal,
-                    Allocated = _db.PaymentAllocations
-                        .Where(a => a.InvoiceId == i.InvoiceId)
-                        .Sum(a => (decimal?)a.AmountApplied) ?? 0m
+                    i.InvoiceDate
                 })
                 .ToListAsync();
 
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            decimal b0_30 = 0, b31_60 = 0, b61_90 = 0, b90p = 0;
+            var allocs = await _db.PaymentAllocations
+                .GroupBy(a => a.InvoiceId)
+                .Select(g => new { InvoiceId = g.Key, Paid = g.Sum(a => a.AmountApplied) })
+                .ToListAsync();
 
-            foreach (var x in open)
+            var result = invoices.Select(i =>
             {
-                var due = x.GrandTotal - x.Allocated;
-                if (due <= 0) continue;
+                var paid = allocs.FirstOrDefault(a => a.InvoiceId == i.InvoiceId)?.Paid ?? 0;
+                var due = i.GrandTotal - paid;
+                var days = (today.ToDateTime(TimeOnly.MinValue) - i.InvoiceDate.ToDateTime(TimeOnly.MinValue)).Days;
 
-                var days = (today.ToDateTime(TimeOnly.MinValue) - x.InvoiceDate.ToDateTime(TimeOnly.MinValue)).Days;
-                if (days <= 30)        b0_30 += due;
-                else if (days <= 60)   b31_60 += due;
-                else if (days <= 90)   b61_90 += due;
-                else                   b90p   += due;
-            }
+                string bucket = days <= 30 ? "0–30 ngày"
+                              : days <= 60 ? "31–60 ngày"
+                              : ">60 ngày";
 
-            var total = b0_30 + b31_60 + b61_90 + b90p;
-
-            return Ok(new
-            {
-                TotalOpen = total,
-                Buckets = new[]
+                return new
                 {
-                    new { Bucket = "0-30",  Amount = b0_30 },
-                    new { Bucket = "31-60", Amount = b31_60 },
-                    new { Bucket = "61-90", Amount = b61_90 },
-                    new { Bucket = "90+",   Amount = b90p }
-                }
+                    i.InvoiceNo,
+                    i.CustomerId,
+                    i.GrandTotal,
+                    Paid = paid,
+                    Due = due,
+                    AgeDays = days,
+                    Bucket = bucket
+                };
             });
+
+            return Ok(result);
+        }
+
+        // 4️⃣ Top khách hàng theo doanh thu
+        [HttpGet("top-customers")]
+        public async Task<ActionResult<object>> TopCustomers()
+        {
+            var data = await _db.Invoices
+                .Where(i => i.Status == "PAID_FULL")
+                .GroupBy(i => i.CustomerId)
+                .Select(g => new
+                {
+                    CustomerId = g.Key,
+                    TotalSpent = g.Sum(i => i.GrandTotal)
+                })
+                .OrderByDescending(x => x.TotalSpent)
+                .Take(10)
+                .ToListAsync();
+
+            var enriched = await _db.Customers
+                .Where(c => data.Select(x => x.CustomerId).Contains(c.CustomerId))
+                .Select(c => new
+                {
+                    c.CustomerId,
+                    c.FullName
+                })
+                .ToListAsync();
+
+            var result = from d in data
+                         join c in enriched on d.CustomerId equals c.CustomerId
+                         select new { c.FullName, d.TotalSpent };
+
+            return Ok(result);
         }
     }
 }
