@@ -33,3 +33,4 @@ WHERE so.model_id IS NULL;
 -- 5. Sau khi cleanup, thử thêm foreign key constraints lại
 -- (Chạy phần này từ AddServiceOrderColumns.sql)
 
+
