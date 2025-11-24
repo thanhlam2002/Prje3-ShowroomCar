@@ -7,42 +7,38 @@ namespace ShowroomCar.Api.Services
     public class MailService
     {
         private readonly IConfiguration _config;
-        private readonly ILogger<MailService> _logger;
 
-        public MailService(IConfiguration config, ILogger<MailService> logger)
+        public MailService(IConfiguration config)
         {
             _config = config;
-            _logger = logger;
         }
 
         public async Task SendPurchaseOrderAsync(string to, string subject, string htmlBody)
         {
-            try
+            var mailSection = _config.GetSection("Mail");
+
+            var smtp = new SmtpClient
             {
-                var host = _config["Mail:SmtpHost"];
-                var port = int.Parse(_config["Mail:SmtpPort"]);
-                var user = _config["Mail:User"];
-                var pass = _config["Mail:Pass"];
-                var from = _config["Mail:From"];
+                Host = mailSection["SmtpServer"],
+                Port = int.Parse(mailSection["Port"]),
+                EnableSsl = bool.Parse(mailSection["EnableSsl"]),
+                Credentials = new NetworkCredential(
+                    mailSection["User"],
+                    mailSection["Password"]
+                )
+            };
 
-                using var smtp = new SmtpClient(host, port)
-                {
-                    EnableSsl = true,
-                    Credentials = new NetworkCredential(user, pass)
-                };
-
-                var msg = new MailMessage(from, to, subject, htmlBody)
-                {
-                    IsBodyHtml = true
-                };
-
-                await smtp.SendMailAsync(msg);
-                _logger.LogInformation($"📨 Mail sent to {to} : {subject}");
-            }
-            catch (Exception ex)
+            var message = new MailMessage
             {
-                _logger.LogError(ex, $"❌ Failed to send mail to {to}");
-            }
+                From = new MailAddress(mailSection["From"], mailSection["DisplayName"]),
+                Subject = subject,
+                Body = htmlBody,
+                IsBodyHtml = true
+            };
+
+            message.To.Add(to);
+
+            await smtp.SendMailAsync(message);
         }
     }
 }

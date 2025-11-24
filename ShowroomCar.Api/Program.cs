@@ -29,6 +29,7 @@ builder.Services.AddScoped<AuditScope>();
 builder.Services.AddScoped<AuditSaveChangesInterceptor>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<MailService>();
+builder.Services.AddSingleton<PoTokenService>();
 
 // DbContext + Audit interceptor
 builder.Services.AddDbContext<ShowroomDbContext>((sp, options) =>

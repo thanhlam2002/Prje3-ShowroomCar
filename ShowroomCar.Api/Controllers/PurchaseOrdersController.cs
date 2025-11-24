@@ -239,7 +239,11 @@ namespace ShowroomCar.Api.Controllers
 
         // ✅ Gửi PO cho nhà cung cấp (send mail + đổi trạng thái)
         [HttpPost("{id:long}/send")]
-        public async Task<IActionResult> Send(long id, [FromServices] MailService mailer)
+        public async Task<IActionResult> Send(
+    long id,
+    [FromServices] MailService mailer,
+    [FromServices] PoTokenService tokenSvc,
+    [FromServices] IConfiguration config)
         {
             var po = await _db.PurchaseOrders
                 .Include(p => p.Supplier)
@@ -247,40 +251,73 @@ namespace ShowroomCar.Api.Controllers
                 .FirstOrDefaultAsync(p => p.PoId == id);
 
             if (po == null) return NotFound();
-            if (po.Status == "RECEIVING" || po.Status == "CLOSED")
-                return Conflict($"PO #{id} already sent or closed.");
 
-            // Cập nhật trạng thái
+            // Cập nhật trạng thái khi gửi
             po.Status = "RECEIVING";
-            _db.PurchaseOrders.Update(po);
             await _db.SaveChangesAsync();
 
-            // Gửi email cho nhà cung cấp
-            var supplier = po.Supplier;
-            if (!string.IsNullOrEmpty(supplier.Email))
-            {
-                var body = $@"
-            <p>Kính gửi <b>{supplier.Name}</b>,</p>
-            <p>Đơn đặt hàng <b>{po.PoNo}</b> đã được gửi từ hệ thống ShowroomCar.</p>
-            <p>Chi tiết đơn hàng:</p>
-            <ul>
-              {string.Join("", po.PurchaseOrderItems.Select(i => $"<li>Model #{i.ModelId} - Số lượng: {i.Qty} - Đơn giá: {i.UnitPrice:C}</li>"))}
-            </ul>
-            <p>Vui lòng xác nhận và tiến hành giao hàng theo lịch đã thỏa thuận.</p>
-            <hr/>
-            <p><i>Đây là email tự động từ hệ thống ShowroomCar.</i></p>";
+            // === TẠO TOKEN XÁC NHẬN ===
+            var token = tokenSvc.Generate(po.PoId);
 
-                await mailer.SendPurchaseOrderAsync(
-                    supplier.Email,
-                    $"[ShowroomCar] Đơn đặt hàng {po.PoNo}",
-                    body
-                );
-            }
+            var baseUrl = config["App:BaseUrl"]; // thêm mục này vào appsettings.json
+            var confirmUrl = $"{baseUrl}/api/purchaseorders/{po.PoId}/confirm?token={token}";
+
+            // === EMAIL NỘI DUNG ===
+            var body = $@"
+                <p>Kính gửi <b>{po.Supplier.Name}</b>,</p>
+                <p>Đơn đặt hàng <b>{po.PoNo}</b> đã được gửi từ hệ thống ShowroomCar.</p>
+
+                <p>Vui lòng xác nhận đơn hàng tại liên kết dưới đây:</p>
+                <p>
+                <a href=""{confirmUrl}"" 
+                    style=""background:#4CAF50;color:white;padding:10px 18px;text-decoration:none;border-radius:4px;"">
+                    Xác nhận Đơn hàng
+                </a>
+                </p>
+
+                <p>Nếu không bấm được nút, copy link sau:</p>
+                <p>{confirmUrl}</p>
+
+                <hr/>
+                <p>Email tự động từ hệ thống ShowroomCar.</p>";
+
+            await mailer.SendPurchaseOrderAsync(
+                po.Supplier.Email,
+                $"[ShowroomCar] Xác nhận đơn đặt hàng {po.PoNo}",
+                body
+            );
 
             return Ok(new { message = "PO sent successfully", po.PoNo, po.Status });
         }
+        [HttpGet("{id:long}/confirm")]
+        [AllowAnonymous]  // Supplier không phải đăng nhập
+        public async Task<IActionResult> Confirm(long id, string token, [FromServices] PoTokenService tokenSvc)
+        {
+            if (!tokenSvc.Validate(token, out var tokenPoId) || tokenPoId != id)
+                return BadRequest("Token không hợp lệ hoặc đã hết hạn.");
 
+            var po = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.PoId == id);
+            if (po == null) return NotFound();
 
+            if (po.Status == "CONFIRMED")
+                return Ok("PO đã xác nhận trước đó.");
+
+            po.Status = "CONFIRMED";
+            await _db.SaveChangesAsync();
+
+            // Trả về trang HTML nhỏ (supplier thấy đẹp hơn JSON)
+            var html = $@"
+                    <html>
+                    <body style='font-family:Arial;'>
+                    <h2>Đơn hàng {po.PoNo} đã được xác nhận thành công!</h2>
+                    <p>Cảm ơn quý đối tác đã xác nhận. Chúng tôi sẽ tiến hành các bước tiếp theo.</p>
+                    <hr/>
+                    <small>ShowroomCar System</small>
+                    </body>
+                    </html>";
+
+            return Content(html, "text/html");
+        }
 
     }
 }
