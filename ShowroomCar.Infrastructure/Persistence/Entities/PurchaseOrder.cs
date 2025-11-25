@@ -28,4 +28,16 @@ public partial class PurchaseOrder
     public virtual ICollection<PurchaseOrderItem> PurchaseOrderItems { get; set; } = new List<PurchaseOrderItem>();
 
     public virtual Supplier Supplier { get; set; } = null!;
+
+    public long? CustomerId { get; set; }
+
+    public long? RequestId { get; set; }
+
+
+    public Customer Customer { get; set; }
+
+    public VehicleRequest VehicleRequest { get; set; }
+
+    public ICollection<VehicleReturn> VehicleReturns { get; set; }
+
 }

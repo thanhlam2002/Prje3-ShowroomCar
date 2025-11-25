@@ -319,5 +319,183 @@ namespace ShowroomCar.Api.Controllers
             return Content(html, "text/html");
         }
 
+        [HttpPost("{id:long}/receive")]
+        public async Task<IActionResult> Receive(long id, [FromBody] PurchaseOrderReceiveRequest req)
+        {
+            var po = await _db.PurchaseOrders
+                .Include(p => p.PurchaseOrderItems)
+                .FirstOrDefaultAsync(p => p.PoId == id);
+
+            if (po == null)
+                return NotFound("PO không tồn tại.");
+
+            if (po.Status != "CONFIRMED")
+                return BadRequest("PO phải ở trạng thái CONFIRMED trước khi nhập kho.");
+
+            var warehouse = await _db.Warehouses.FirstOrDefaultAsync(w => w.WarehouseId == req.WarehouseId);
+            if (warehouse == null)
+                return BadRequest("Warehouse không tồn tại.");
+
+            var now = DateTime.UtcNow;
+            var year = req.Year ?? now.Year;
+            var defaultColor = string.IsNullOrWhiteSpace(req.DefaultColor) ? "White" : req.DefaultColor;
+
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // 1) Tạo GR
+                var gr = new GoodsReceipt
+                {
+                    GrNo = $"GR-{now:yyyyMMddHHmmssfff}",
+                    PoId = po.PoId,
+                    WarehouseId = req.WarehouseId,
+                    ReceiptDate = DateOnly.FromDateTime(now),
+                    CreatedAt = now
+                };
+                _db.GoodsReceipts.Add(gr);
+                await _db.SaveChangesAsync();
+
+                // 2) Sinh Vehicle
+                var createdVehicles = new List<Vehicle>();
+
+                foreach (var item in po.PurchaseOrderItems)
+                {
+                    for (int i = 0; i < item.Qty; i++)
+                    {
+                        var suffix = Guid.NewGuid().ToString("N")[..6].ToUpper();
+
+                        var veh = new Vehicle
+                        {
+                            ModelId = item.ModelId,
+                            Vin = $"VIN-{item.ModelId}-{suffix}",
+                            EngineNo = $"ENG-{item.ModelId}-{suffix}",
+                            Color = defaultColor,
+                            Year = year,
+                            Status = "UNDER_INSPECTION",
+                            CurrentWarehouseId = req.WarehouseId,
+                            AcquiredAt = now,
+                            UpdatedAt = now
+                        };
+
+                        createdVehicles.Add(veh);
+                        _db.Vehicles.Add(veh);
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                // 3) GR Items
+                var grItems = createdVehicles.Select(v =>
+                    new GoodsReceiptItem
+                    {
+                        GrId = gr.GrId,
+                        VehicleId = v.VehicleId,
+                        LandedCost = po.PurchaseOrderItems.First(x => x.ModelId == v.ModelId).UnitPrice
+                    });
+
+                _db.GoodsReceiptItems.AddRange(grItems);
+
+                // 4) Auto-assign cho Request (nếu có)
+                if (po.RequestId != null)
+                {
+                    var reqId = po.RequestId.Value;
+                    var reqEnt = await _db.VehicleRequests.FirstOrDefaultAsync(r => r.RequestId == reqId);
+
+                    if (reqEnt != null)
+                    {
+                        Vehicle picked = null;
+
+                        if (!string.IsNullOrWhiteSpace(reqEnt.PreferredColor))
+                        {
+                            picked = createdVehicles.FirstOrDefault(v =>
+                                v.ModelId == reqEnt.ModelId &&
+                                v.Color.ToLower() == reqEnt.PreferredColor.ToLower());
+                        }
+
+                        if (picked == null)
+                        {
+                            picked = createdVehicles.FirstOrDefault(v => v.ModelId == reqEnt.ModelId);
+                        }
+
+                        if (picked != null)
+                        {
+                            picked.Status = "RESERVED";
+                            picked.ReservedRequestId = reqEnt.RequestId;
+                            picked.ReservedForCustomerId = reqEnt.CustomerId;
+
+                            reqEnt.VehicleId = picked.VehicleId;
+                            reqEnt.Status = "WAITING";
+                            reqEnt.ProcessedAt = now;
+                        }
+                    }
+                }
+
+                // 5) PO -> CLOSED
+                po.Status = "CLOSED";
+                await _db.SaveChangesAsync();
+
+                await tx.CommitAsync();
+
+                return Ok(new
+                {
+                    message = "PO received, vehicles created and auto-assigned (if applicable)",
+                    grId = gr.GrId,
+                    vehiclesCreated = createdVehicles.Count
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+
+        [HttpPut("{id:long}/supplier")]
+        public async Task<IActionResult> UpdateSupplier(long id, [FromBody] PurchaseOrderUpdateSupplierRequest req)
+        {
+            var po = await _db.PurchaseOrders
+                .Include(p => p.Supplier)
+                .Include(p => p.PurchaseOrderItems)
+                .FirstOrDefaultAsync(p => p.PoId == id);
+
+            if (po == null)
+                return NotFound("PO không tồn tại.");
+
+            // Chỉ được sửa supplier khi PO chưa gửi
+            if (po.Status != "PENDING" && po.Status != "PO_CREATED")
+                return BadRequest("Không thể đổi Supplier khi PO đã gửi hoặc đã xác nhận.");
+
+            var supplier = await _db.Suppliers.FirstOrDefaultAsync(s => s.SupplierId == req.SupplierId);
+            if (supplier == null)
+                return BadRequest("Supplier không tồn tại.");
+
+            // Cập nhật
+            po.SupplierId = req.SupplierId;
+            await _db.SaveChangesAsync();
+
+            // Trả về PO đầy đủ để FE hiển thị
+            var dto = new PurchaseOrderDto
+            {
+                PoId = po.PoId,
+                PoNo = po.PoNo,
+                SupplierId = po.SupplierId,
+                SupplierName = supplier.Name,
+                OrderDate = po.OrderDate,
+                Status = po.Status,
+                TotalAmount = po.TotalAmount,
+                Items = po.PurchaseOrderItems.Select(i => new PurchaseOrderItemDto
+                {
+                    PoItemId = i.PoItemId,
+                    PoId = i.PoId,
+                    ModelId = i.ModelId,
+                    Qty = i.Qty,
+                    UnitPrice = i.UnitPrice,
+                    LineTotal = i.LineTotal
+                }).ToList()
+            };
+
+            return Ok(dto);
+        }
+
     }
 }

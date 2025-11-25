@@ -133,6 +133,16 @@ namespace ShowroomCar.Api.Controllers
             if (s.Status != ServiceOrderStatus.Planned)
                 return Conflict($"Only {ServiceOrderStatus.Planned} can be started.");
 
+            // 1️⃣ Cập nhật ServiceOrder
+            s.Status = ServiceOrderStatus.InProgress;
+
+            // 2️⃣ Cập nhật trạng thái Vehicle
+            if (s.Vehicle != null)
+            {
+                s.Vehicle.Status = "INSPECTION_IN_PROGRESS";
+                s.Vehicle.UpdatedAt = DateTime.UtcNow;
+            }
+
             s.Status = ServiceOrderStatus.InProgress;
             await _db.SaveChangesAsync();
             return Ok(new { message = $"Service {s.SvcNo} started." });
@@ -276,7 +286,7 @@ namespace ShowroomCar.Api.Controllers
                         var doneCount = await _db.GoodsReceiptItems
                             .Include(gri => gri.Gr)
                             .Include(gri => gri.Vehicle)
-                            .Where(gri => gri.Gr.PoId == po.PoId && 
+                            .Where(gri => gri.Gr.PoId == po.PoId &&
                                          (gri.Vehicle.Status == "IN_STOCK" || gri.Vehicle.Status == "RETURNED"))
                             .CountAsync();
 

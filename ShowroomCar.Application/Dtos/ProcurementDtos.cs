@@ -6,8 +6,8 @@ namespace ShowroomCar.Application.Dtos
     public class PoItemCreate
     {
         [Required] public int ModelId { get; set; }
-        [Range(1,int.MaxValue)] public int Qty { get; set; }
-        [Range(0,double.MaxValue)] public decimal UnitPrice { get; set; }
+        [Range(1, int.MaxValue)] public int Qty { get; set; }
+        [Range(0, double.MaxValue)] public decimal UnitPrice { get; set; }
     }
 
     public class PurchaseOrderCreateRequest
@@ -76,5 +76,10 @@ namespace ShowroomCar.Application.Dtos
         public string Vin { get; set; } = null!;
         public string EngineNo { get; set; } = null!;
         public decimal LandedCost { get; set; }
+    }
+
+    public class PurchaseOrderUpdateSupplierRequest
+    {
+        public int SupplierId { get; set; }
     }
 }
