@@ -28,47 +28,61 @@ namespace ShowroomCar.Api.Controllers
         /// </summary>
         [HttpPost]
         [AllowAnonymous]
-        public async Task<IActionResult> CreateRequest([FromBody] VehicleRequestCreateDto dto)
+        public async Task<IActionResult> CreateVehicleRequest([FromBody] VehicleRequestCreateDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // Chuẩn hóa CustomerId
-            long? customerId = (dto.CustomerId > 0 ? dto.CustomerId : null);
+            long customerId;
 
-            // BẮT BUỘC vehicleId phải tồn tại
+            // Nếu Web KHÔNG truyền customerId → tự tạo customer
+            if (dto.CustomerId == null || dto.CustomerId <= 0)
+            {
+                var newCustomer = new Customer
+                {
+                    FullName = dto.FullName,
+                    Phone = dto.Phone,
+                    Email = dto.Email,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Customers.Add(newCustomer);
+                await _db.SaveChangesAsync();
+
+                customerId = newCustomer.CustomerId;
+            }
+            else
+            {
+                customerId = dto.CustomerId.Value;
+            }
+
+            // Validate vehicle
             var vehicle = await _db.Vehicles
                 .FirstOrDefaultAsync(v => v.VehicleId == dto.VehicleId);
 
             if (vehicle == null)
                 return BadRequest("VehicleId không tồn tại.");
 
-            // Lấy modelId từ xe
-            int modelId = vehicle.ModelId;
-
-            var request = new VehicleRequest
+            var req = new VehicleRequest
             {
                 CustomerId = customerId,
                 FullName = dto.FullName,
                 Phone = dto.Phone,
                 Email = dto.Email,
                 Content = dto.Content,
-
                 VehicleId = dto.VehicleId,
-                ModelId = modelId,
-
+                ModelId = vehicle.ModelId,
                 PreferredColor = dto.PreferredColor,
                 Source = dto.Source ?? "WEB",
-
                 Status = "NEW",
                 CreatedAt = DateTime.UtcNow
             };
 
-            _db.VehicleRequests.Add(request);
+            _db.VehicleRequests.Add(req);
             await _db.SaveChangesAsync();
 
-            return Ok(new { requestId = request.RequestId });
+            return Ok(new { requestId = req.RequestId });
         }
+
 
 
 
@@ -97,6 +111,7 @@ namespace ShowroomCar.Api.Controllers
                     FullName = r.FullName,
                     Phone = r.Phone,
                     Email = r.Email,
+                    PickupAppointment = r.PickupAppointment,
                     Status = r.Status,
                     PreferredColor = r.PreferredColor,
                     ModelName = r.Model.Name,
@@ -130,6 +145,7 @@ namespace ShowroomCar.Api.Controllers
                 Phone = r.Phone,
                 Email = r.Email,
                 Content = r.Content,
+                PickupAppointment = r.PickupAppointment,
                 ModelId = r.ModelId,
                 ModelName = r.Model?.Name,
                 PreferredColor = r.PreferredColor,
@@ -205,19 +221,23 @@ namespace ShowroomCar.Api.Controllers
             if (req.PoId != null)
                 return BadRequest("Request này đã có PO.");
 
-            // => Supplier default: ADMIN sẽ sửa lại sau khi vào màn hình edit PO
-            const int UnknownSupplierId = 2;
+            // Lấy Supplier từ model
+            var supplierId = await _db.SupplierModels
+                .Where(sm => sm.ModelId == req.ModelId)
+                .Select(sm => sm.SupplierId)
+                .FirstOrDefaultAsync();
+
+            if (supplierId == 0)
+                return BadRequest("Model này chưa có Supplier. Vui lòng cấu hình trước.");
 
             var po = new PurchaseOrder
             {
                 PoNo = $"PO-{DateTime.UtcNow:yyyyMMddHHmmss}",
-                SupplierId = UnknownSupplierId,
+                SupplierId = supplierId,
                 Status = "DRAFT",
                 OrderDate = DateOnly.FromDateTime(DateTime.UtcNow),
                 TotalAmount = 0,
                 CreatedAt = DateTime.UtcNow,
-
-                // Gắn request vào PO
                 CustomerId = req.CustomerId,
                 RequestId = req.RequestId
             };
@@ -225,25 +245,25 @@ namespace ShowroomCar.Api.Controllers
             _db.PurchaseOrders.Add(po);
             await _db.SaveChangesAsync();
 
-            // ============================
-            // Tự động tạo 1 PO Item theo model khách chọn
-            // ============================
+            // Tạo PO Item
             var item = new PurchaseOrderItem
             {
                 PoId = po.PoId,
                 ModelId = req.ModelId,
                 Qty = 1,
-                UnitPrice = 0, // admin chỉnh lại sau
+                UnitPrice = 0,
                 LineTotal = 0
             };
 
             _db.PurchaseOrderItems.Add(item);
-            await _db.SaveChangesAsync();
 
-            // Cập nhật lại request
+            // Cập nhật request
             req.PoId = po.PoId;
             req.Status = "PO_CREATED";
+            req.ProcessedAt = DateTime.UtcNow;
+
             await _db.SaveChangesAsync();
+
 
             return Ok(new { poId = po.PoId, poNo = po.PoNo });
         }

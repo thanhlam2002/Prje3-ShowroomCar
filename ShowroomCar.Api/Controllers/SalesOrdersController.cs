@@ -101,14 +101,10 @@ namespace ShowroomCar.Api.Controllers
             if (req.Items == null || req.Items.Count == 0)
                 return BadRequest("Sales order must have at least one item.");
 
-            var cust = await _db.Customers.FindAsync(req.CustomerId);
-            if (cust == null) return NotFound("Customer not found.");
-
             VehicleRequest? vReq = null;
+            long customerId;
 
-            // ===========================================================
-            // 1) Trường hợp có RequestId → validate customer + validate vehicle
-            // ===========================================================
+            // 1) Nếu có RequestId → tự lấy customer
             if (req.RequestId.HasValue)
             {
                 vReq = await _db.VehicleRequests
@@ -117,44 +113,51 @@ namespace ShowroomCar.Api.Controllers
                 if (vReq == null)
                     return BadRequest("Vehicle request not found.");
 
-                if (vReq.CustomerId.HasValue && vReq.CustomerId.Value != req.CustomerId)
-                    return BadRequest("Vehicle request does not belong to this customer.");
+                if (!vReq.CustomerId.HasValue)
+                    return BadRequest("Vehicle request does not have a customer.");
 
-                // Nếu request được gán sẵn 1 xe thì SO phải dùng đúng xe đó
+                customerId = vReq.CustomerId.Value;
+
+                // Nếu request đã chọn xe
                 if (vReq.VehicleId.HasValue)
                 {
-                    var vehIdsFromReq = req.Items.Select(i => i.VehicleId).Distinct().ToList();
-
-                    if (vehIdsFromReq.Count != 1 || vehIdsFromReq[0] != vReq.VehicleId.Value)
-                        return BadRequest("Sales order must use the vehicle reserved in the request.");
+                    var vehIds = req.Items.Select(i => i.VehicleId).Distinct().ToList();
+                    if (vehIds.Count != 1 || vehIds[0] != vReq.VehicleId.Value)
+                        return BadRequest("Sales order must use the vehicle assigned to the request.");
                 }
             }
+            else
+            {
+                // 2) Không có request → khách phải rõ ràng
+                if (req.CustomerId == 0)
+                    return BadRequest("CustomerId is required when requestId is not provided.");
 
-            // ===========================================================
-            // 2) Validate danh sách xe
-            // ===========================================================
-            var vehIds = req.Items.Select(x => x.VehicleId).Distinct().ToList();
+                var cust = await _db.Customers.FindAsync(req.CustomerId);
+                if (cust == null)
+                    return NotFound("Customer not found.");
+
+                customerId = req.CustomerId;
+            }
+
+            // 3) Validate xe
+            var vehIds2 = req.Items.Select(x => x.VehicleId).Distinct().ToList();
             var vehicles = await _db.Vehicles
-                .Where(v => vehIds.Contains(v.VehicleId))
+                .Where(v => vehIds2.Contains(v.VehicleId))
                 .ToListAsync();
 
-            if (vehicles.Count != vehIds.Count)
+            if (vehicles.Count != vehIds2.Count)
                 return BadRequest("Some vehicles not found.");
 
-            // Chỉ IN_STOCK hoặc RESERVED mới được bán
-            if (vehicles.Any(v => v.Status != "IN_STOCK" && v.Status != "RESERVED"))
-                return Conflict("Vehicle must be IN_STOCK or RESERVED to create a Sales Order.");
-
-            // Xe RESERVED → chỉ đúng customer mới được mua
-            foreach (var v in vehicles.Where(v => v.Status == "RESERVED"))
+            foreach (var v in vehicles)
             {
-                if (v.ReservedForCustomerId != req.CustomerId)
+                if (v.Status != "IN_STOCK" && v.Status != "RESERVED")
+                    return Conflict($"Vehicle {v.VehicleId} is not available for sale.");
+
+                if (v.Status == "RESERVED" && v.ReservedForCustomerId != customerId)
                     return Conflict($"Vehicle {v.VehicleId} is reserved for another customer.");
             }
 
-            // ===========================================================
-            // 3) Tạo SaleOrder
-            // ===========================================================
+            // 4) Tạo SO
             await using var tx = await _db.Database.BeginTransactionAsync();
 
             try
@@ -164,24 +167,22 @@ namespace ShowroomCar.Api.Controllers
                 var so = new SalesOrder
                 {
                     SoNo = NewNo("SO"),
-                    CustomerId = req.CustomerId,
-                    RequestId = req.RequestId,   // <-- GẮN REQUEST VÀO SALE ORDER
-                    OrderDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                    CustomerId = customerId,
+                    RequestId = req.RequestId,
+                    OrderDate = DateOnly.FromDateTime(now),
                     Status = "DRAFT",
                     Subtotal = req.Items.Sum(x => x.SellPrice),
                     Discount = req.Items.Sum(x => x.Discount),
                     Tax = req.Items.Sum(x => x.Tax),
                     GrandTotal = req.Items.Sum(x => x.SellPrice)
-                                 - req.Items.Sum(x => x.Discount)
-                                 + req.Items.Sum(x => x.Tax)
+                                  - req.Items.Sum(x => x.Discount)
+                                  + req.Items.Sum(x => x.Tax)
                 };
 
-                await _db.SalesOrders.AddAsync(so);
+                _db.SalesOrders.Add(so);
                 await _db.SaveChangesAsync();
 
-                // ===========================================================
-                // 4) Tạo SalesOrder Items
-                // ===========================================================
+                // Items
                 var items = req.Items.Select(x => new SalesOrderItem
                 {
                     SoId = so.SoId,
@@ -191,20 +192,16 @@ namespace ShowroomCar.Api.Controllers
                     Tax = x.Tax
                 }).ToList();
 
-                await _db.SalesOrderItems.AddRangeAsync(items);
+                _db.SalesOrderItems.AddRange(items);
 
-                // ===========================================================
-                // 5) Update trạng thái xe → ALLOCATED (đã giữ cho SO này)
-                // ===========================================================
+                // Vehicle → ALLOCATED
                 foreach (var v in vehicles)
                 {
                     v.Status = "ALLOCATED";
                     v.UpdatedAt = now;
                 }
 
-                // ===========================================================
-                // 6) Nếu tạo từ request → cập nhật trạng thái request
-                // ===========================================================
+                // Update Request
                 if (vReq != null)
                 {
                     vReq.SoId = so.SoId;
@@ -227,6 +224,7 @@ namespace ShowroomCar.Api.Controllers
                 throw;
             }
         }
+
 
 
         // ✅ POST: api/salesorders/{id}/confirm (luồng cũ – confirm + sinh invoice ngay)

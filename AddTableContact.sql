@@ -141,3 +141,36 @@ INSERT INTO vehicles
 (model_id, vin, engine_no, color, year, status, current_warehouse_id, acquired_at, updated_at)
 VALUES
 (1, 'VIN-TRANSIT-001', 'ENG-TRANSIT-001', 'Red', 2024, 'IN_TRANSIT', 1, NOW(), NOW());
+
+CREATE TABLE IF NOT EXISTS supplier_models (
+  supplier_model_id INT AUTO_INCREMENT PRIMARY KEY,
+  supplier_id INT NOT NULL,
+  model_id INT NOT NULL,
+  created_at DATETIME NULL,
+  UNIQUE KEY uk_supplier_model (supplier_id, model_id),
+  INDEX fk_sm_supplier (supplier_id),
+  INDEX fk_sm_model (model_id),
+  CONSTRAINT fk_sm_supplier 
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) 
+    ON DELETE CASCADE,
+  CONSTRAINT fk_sm_model 
+    FOREIGN KEY (model_id) REFERENCES vehicle_models(model_id) 
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE vehicle_requests 
+ADD COLUMN PickupAppointment DATETIME NULL;
+
+-- Xoá dữ liệu cũ nếu cần
+-- TRUNCATE TABLE supplier_models;
+
+INSERT INTO supplier_models (supplier_id, model_id, created_at)
+VALUES
+(1, 1, NOW()),
+(1, 2, NOW());
+
+SHOW COLUMNS FROM sales_orders LIKE 'contract_confirmed_at';
+
+DESCRIBE sales_orders;
+
+ALTER TABLE sales_orders ADD COLUMN RequestId BIGINT NULL;

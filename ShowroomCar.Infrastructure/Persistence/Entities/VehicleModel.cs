@@ -34,4 +34,8 @@ public partial class VehicleModel
     public virtual ICollection<Vehicle> Vehicles { get; set; } = new List<Vehicle>();
 
     public virtual ICollection<WaitlistEntry> WaitlistEntries { get; set; } = new List<WaitlistEntry>();
+
+    public ICollection<SupplierModel> SupplierModels { get; set; } = new List<SupplierModel>();
+
+
 }

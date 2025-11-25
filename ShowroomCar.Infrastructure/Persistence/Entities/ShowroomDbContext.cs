@@ -84,6 +84,8 @@ public partial class ShowroomDbContext : DbContext
 
     public DbSet<VehicleReturn> VehicleReturns { get; set; }
 
+    public DbSet<SupplierModel> SupplierModels { get; set; }
+
 
     // Connection string được cấu hình qua DI trong Program.cs
     // Không cần OnConfiguring nữa vì đã có DbContextOptions được inject
@@ -907,6 +909,9 @@ public partial class ShowroomDbContext : DbContext
                 .HasForeignKey(d => d.CustomerId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_so_customer");
+            entity.Property(e => e.ContractConfirmedAt)
+.HasColumnName("contract_confirmed_at");
+
         });
 
         modelBuilder.Entity<SalesOrderItem>(entity =>
@@ -1593,6 +1598,39 @@ public partial class ShowroomDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.RequestId);
         });
+
+        modelBuilder.Entity<SupplierModel>(entity =>
+    {
+        entity.ToTable("supplier_models");
+
+        entity.HasKey(e => e.SupplierModelId);
+
+        entity.Property(e => e.SupplierModelId)
+              .HasColumnName("supplier_model_id");
+
+        entity.Property(e => e.SupplierId)
+              .HasColumnName("supplier_id");
+
+        entity.Property(e => e.ModelId)
+              .HasColumnName("model_id");
+
+        entity.Property(e => e.CreatedAt)
+              .HasColumnName("created_at");
+
+        entity.HasIndex(e => new { e.SupplierId, e.ModelId })
+              .IsUnique()
+              .HasDatabaseName("uk_supplier_model");
+
+        entity.HasOne(e => e.Supplier)
+              .WithMany(s => s.SupplierModels)
+              .HasForeignKey(e => e.SupplierId)
+              .OnDelete(DeleteBehavior.Cascade);
+
+        entity.HasOne(e => e.Model)
+              .WithMany(m => m.SupplierModels)
+              .HasForeignKey(e => e.ModelId)
+              .OnDelete(DeleteBehavior.Cascade);
+    });
 
         OnModelCreatingPartial(modelBuilder);
     }

@@ -12,6 +12,7 @@ namespace ShowroomCar.Application.Dtos
         public string Content { get; set; }
         public long? RequestId { get; set; }
         public string PreferredColor { get; set; }
+        public DateTime? PickupAppointment { get; set; }
         // WEB | SHOWROOM | CALL
         public string Source { get; set; }
     }
@@ -25,6 +26,7 @@ namespace ShowroomCar.Application.Dtos
         public string Status { get; set; }
         public string PreferredColor { get; set; }
         public string ModelName { get; set; }
+        public DateTime? PickupAppointment { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -36,6 +38,7 @@ namespace ShowroomCar.Application.Dtos
         public string Phone { get; set; }
         public string Email { get; set; }
         public string Content { get; set; }
+        public DateTime? PickupAppointment { get; set; }
         public string VehicleStatus { get; set; }
         public string VehicleColor { get; set; }
         public string VehicleVin { get; set; }
