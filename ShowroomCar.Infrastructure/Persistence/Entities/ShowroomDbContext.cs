@@ -80,6 +80,11 @@ public partial class ShowroomDbContext : DbContext
 
     public DbSet<GoodsReturnItem> GoodsReturnItems { get; set; }
 
+    public DbSet<VehicleRequest> VehicleRequests { get; set; }
+
+    public DbSet<VehicleReturn> VehicleReturns { get; set; }
+
+
     // Connection string được cấu hình qua DI trong Program.cs
     // Không cần OnConfiguring nữa vì đã có DbContextOptions được inject
 
@@ -987,26 +992,26 @@ public partial class ShowroomDbContext : DbContext
             entity.Property(e => e.VehicleId)
                 .HasColumnType("bigint(20)")
                 .HasColumnName("vehicle_id");
-            
+
             // Thêm mapping cho các property bổ sung nếu có trong entity
             entity.Property(e => e.PoId)
                 .HasColumnType("bigint(20)")
                 .HasColumnName("po_id")
                 .IsRequired(false);
-            
+
             entity.Property(e => e.GrId)
                 .HasColumnType("bigint(20)")
                 .HasColumnName("gr_id")
                 .IsRequired(false);
-            
+
             entity.Property(e => e.ModelId)
                 .HasColumnType("int(11)")
                 .HasColumnName("model_id");
-            
+
             entity.Property(e => e.QuantityExpected)
                 .HasColumnType("int(11)")
                 .HasColumnName("quantity_expected");
-            
+
             entity.Property(e => e.UpdatedAt)
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
@@ -1019,7 +1024,7 @@ public partial class ShowroomDbContext : DbContext
                 .HasForeignKey(d => d.VehicleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_svc_vehicle");
-            
+
             // Thêm relationship với Model nếu có
             entity.HasOne(d => d.Model)
                 .WithMany()
@@ -1451,6 +1456,142 @@ public partial class ShowroomDbContext : DbContext
                 .HasForeignKey(d => d.GrtId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_grti_grt");
+        });
+
+        /* ===========================
+       VEHICLE REQUESTS
+       =========================== */
+        modelBuilder.Entity<VehicleRequest>(entity =>
+        {
+            entity.ToTable("vehicle_requests");
+
+            entity.HasKey(e => e.RequestId);
+
+            entity.Property(e => e.RequestId).HasColumnName("request_id");
+            entity.Property(e => e.CustomerId).HasColumnName("customer_id");
+            entity.Property(e => e.FullName).HasColumnName("full_name");
+            entity.Property(e => e.Phone).HasColumnName("phone");
+            entity.Property(e => e.Email).HasColumnName("email");
+            entity.Property(e => e.Content).HasColumnName("content");
+
+            entity.Property(e => e.ModelId).HasColumnName("model_id");
+            entity.Property(e => e.PreferredColor).HasColumnName("preferred_color");
+            entity.Property(e => e.VehicleId).HasColumnName("vehicle_id");
+
+            entity.Property(e => e.Source).HasColumnName("source");
+            entity.Property(e => e.Status).HasColumnName("status");
+
+            entity.Property(e => e.PoId).HasColumnName("po_id");
+            entity.Property(e => e.SoId).HasColumnName("so_id");
+
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.ProcessedBy).HasColumnName("processed_by");
+            entity.Property(e => e.ProcessedAt).HasColumnName("processed_at");
+
+            // Foreign keys
+            entity.HasOne(e => e.Customer)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId);
+
+            entity.HasOne(e => e.Model)
+                .WithMany()
+                .HasForeignKey(e => e.ModelId);
+
+            entity.HasOne(e => e.Vehicle)
+                .WithMany()
+                .HasForeignKey(e => e.VehicleId);
+
+            entity.HasOne(e => e.PurchaseOrder)
+                .WithMany()
+                .HasForeignKey(e => e.PoId);
+
+            entity.HasOne(e => e.SalesOrder)
+                .WithMany()
+                .HasForeignKey(e => e.SoId);
+
+            entity.HasOne(e => e.ProcessedUser)
+                .WithMany()
+                .HasForeignKey(e => e.ProcessedBy);
+
+            // 1 request có thể reserve nhiều vehicle
+            entity.HasMany(e => e.ReservedVehicles)
+                .WithOne(v => v.ReservedRequest)
+                .HasForeignKey(v => v.ReservedRequestId);
+        });
+
+
+        /* ===========================
+           VEHICLE RETURNS
+           =========================== */
+        modelBuilder.Entity<VehicleReturn>(entity =>
+        {
+            entity.ToTable("vehicle_returns");
+
+            entity.HasKey(e => e.ReturnId);
+
+            entity.Property(e => e.ReturnId).HasColumnName("return_id");
+            entity.Property(e => e.VehicleId).HasColumnName("vehicle_id");
+            entity.Property(e => e.PoId).HasColumnName("po_id");
+            entity.Property(e => e.GrId).HasColumnName("gr_id");
+            entity.Property(e => e.Reason).HasColumnName("reason");
+            entity.Property(e => e.Status).HasColumnName("status");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+
+            entity.HasOne(e => e.Vehicle)
+                .WithMany(v => v.VehicleReturns)
+                .HasForeignKey(e => e.VehicleId);
+
+            entity.HasOne(e => e.PurchaseOrder)
+                .WithMany(p => p.VehicleReturns)
+                .HasForeignKey(e => e.PoId);
+
+            entity.HasOne(e => e.GoodsReceipt)
+                .WithMany()
+                .HasForeignKey(e => e.GrId);
+
+            entity.HasOne(e => e.CreatedUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedBy);
+        });
+
+
+        /* ===========================
+           UPDATE VEHICLES MAPPING
+           =========================== */
+        modelBuilder.Entity<Vehicle>(entity =>
+        {
+            entity.Property(e => e.ReservedForCustomerId)
+                .HasColumnName("reserved_for_customer_id");
+
+            entity.Property(e => e.ReservedRequestId)
+                .HasColumnName("reserved_request_id");
+
+            entity.HasOne(e => e.ReservedCustomer)
+                .WithMany()
+                .HasForeignKey(e => e.ReservedForCustomerId);
+
+            entity.HasOne(e => e.ReservedRequest)
+                .WithMany(r => r.ReservedVehicles)
+                .HasForeignKey(e => e.ReservedRequestId);
+        });
+
+
+        /* ===========================
+           UPDATE PURCHASE ORDERS
+           =========================== */
+        modelBuilder.Entity<PurchaseOrder>(entity =>
+        {
+            entity.Property(e => e.CustomerId).HasColumnName("customer_id");
+            entity.Property(e => e.RequestId).HasColumnName("request_id");
+
+            entity.HasOne(e => e.Customer)
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId);
+
+            entity.HasOne(e => e.VehicleRequest)
+                .WithMany()
+                .HasForeignKey(e => e.RequestId);
         });
 
         OnModelCreatingPartial(modelBuilder);

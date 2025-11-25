@@ -44,4 +44,15 @@ public partial class Vehicle
     public virtual ICollection<VehicleImage> VehicleImages { get; set; } = new List<VehicleImage>();
 
     public virtual VehicleRegistration? VehicleRegistration { get; set; }
+
+    public long? ReservedForCustomerId { get; set; }
+
+    public long? ReservedRequestId { get; set; }
+
+    public Customer ReservedCustomer { get; set; }
+
+    public VehicleRequest ReservedRequest { get; set; }
+    
+    public ICollection<VehicleReturn> VehicleReturns { get; set; }
+
 }

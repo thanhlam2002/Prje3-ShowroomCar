@@ -23,6 +23,12 @@ public partial class SalesOrder
 
     public decimal Discount { get; set; }
 
+    public long? RequestId { get; set; }
+    
+    public VehicleRequest? Request { get; set; }
+
+    public DateTime? ContractConfirmedAt { get; set; }
+
     public decimal Tax { get; set; }
 
     public decimal GrandTotal { get; set; }
